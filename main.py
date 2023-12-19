@@ -1,23 +1,24 @@
 import random
+import math
 
 
 def print_sql_relations(user_size, category_size, recipe_size, comment_size, product_category_size, product_size, line_item_size, order_size):
 
-    user_size += 2
-    category_size += 2
-    recipe_size += 2
-    comment_size += 2
-    product_category_size += 2
-    product_size += 2
-    line_item_size += 2
-    order_size += 2
+    user_size += 1
+    category_size += 1
+    recipe_size += 1
+    comment_size += 1
+    product_category_size += 1
+    product_size += 1
+    line_item_size += 1
+    order_size += 1
 
     category = "=Category!D"
     user = "=User!J"
     recipe = "=Recipe!L"
     productCategory = "=ProductCategory!D"
-    product = "=Product!H"
-    order = "=Order!F"
+    product = "=Product!G"
+    order = "=Order!E"
 
     recipe_category = ''
     recipe_user = ''
@@ -63,9 +64,9 @@ def print_sql_relations(user_size, category_size, recipe_size, comment_size, pro
     print("Generating Liked and Disliked Recipes relations")
 
     for i in range(2, recipe_size):
-        no_users_liking = random.randint(0, user_size/2-2)
+        no_users_liking = random.randint(0, math.floor(user_size/2))
         liking_users = random.sample(range(2, user_size), no_users_liking)
-        no_users_disliking = random.randint(0, user_size/3-2)
+        no_users_disliking = random.randint(0, math.floor(user_size/3))
         disliking_users = [x for x in random.sample(range(2, user_size), no_users_disliking) if x not in liking_users]
         for j in range(len(liking_users)):
             liked_recipe_liked_recipe += recipe + str(i) + "\n"
@@ -252,16 +253,16 @@ def print_cypher_relations(user_size, category_size, recipe_size, comment_size, 
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
 
-    user_size = 10
-    category_size = 3
-    recipe_size = 5
-    comment_size = 5
-    product_category_size = 5
-    product_size = 10
-    line_item_size = 10
-    order_size = 5
+    user_size = 1000
+    category_size = 21
+    recipe_size = 1000
+    comment_size = 5000
+    product_category_size = 10
+    product_size = 100
+    line_item_size = 300
+    order_size = 150
 
     print_sql_relations(user_size, category_size, recipe_size, comment_size, product_category_size, product_size, line_item_size, order_size)
-    print_cypher_relations(user_size, category_size, recipe_size, comment_size, product_category_size, product_size, line_item_size, order_size)
+    # print_cypher_relations(user_size, category_size, recipe_size, comment_size, product_category_size, product_size, line_item_size, order_size)
 
 # See PyCharm help at https://www.jetbrains.com/help/pycharm/
