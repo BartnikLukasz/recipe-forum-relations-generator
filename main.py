@@ -1,7 +1,16 @@
+import csv
+import json
 import random
 import math
-import openpyxl
+from collections import defaultdict
 
+import openpyxl
+import uuid
+import base64
+
+def base64ToGUID(b64str):
+    bin_guid = base64.b64decode(b64str)
+    return uuid.UUID(bytes=bin_guid)
 
 def get_value_from_cell_reference(ws, cell_reference):
     return ws[cell_reference].value
@@ -41,6 +50,117 @@ def generate_sql_inserts_from_excel(excel_file, liked_recipe_file, custom_user_f
             else:
                 out.write(", ")
 
+def convert_cells_to_uuid(excel_file, recipe_recipe_file, recipe_users_file, output_file):
+    print("converting cells to uuid")
+    wb = openpyxl.load_workbook(excel_file)
+
+    out = open(output_file, 'w')
+
+    with open(recipe_recipe_file, 'r') as lr, open(recipe_users_file, 'r') as cu:
+        for i, (liked_recipe_cell, custom_user_cell) in enumerate(zip(lr, cu), start=1):
+            print(i)
+            liked_recipe_sheet, liked_recipe_cell = liked_recipe_cell.strip().lstrip('=').split('!')
+            custom_user_sheet, custom_user_cell = custom_user_cell.strip().lstrip('=').split('!')
+
+            liked_recipe = get_value_from_cell_reference(wb[liked_recipe_sheet], liked_recipe_cell)
+            custom_user = get_value_from_cell_reference(wb[custom_user_sheet], custom_user_cell)
+
+            if liked_recipe and custom_user:  # Skip if any value is None
+                out.write(f'{liked_recipe},{custom_user}\n')
+
+def generate_id_list_with_metadata_mongo(b64ids):
+    id_list = []
+    for id in b64ids:
+        id_dict = {"$binary": {"base64": id, "subType": "04"}}
+        id_list.append(id_dict)
+    return id_list
+
+def write_mongodb_liked_arrays(input, custom_user_output, recipe_output):
+    user_to_recipes = defaultdict(list)
+    recipe_to_users = defaultdict(list)
+
+    print("Writing push statements:")
+
+    with open(input, 'r') as f:
+        reader = csv.reader(f)
+        for row in reader:
+            recipe_id, user_id = row
+            user_to_recipes[user_id].append(recipe_id)
+            recipe_to_users[recipe_id].append(user_id)
+
+    with open(custom_user_output, 'r') as f:
+        data = json.load(f)
+
+        i = 0
+
+        for item in data:
+            print(i)
+            i += 1
+            user_id = item["_id"]["$binary"]["base64"]
+            if user_id in user_to_recipes:
+                item["likedRecipes"] = generate_id_list_with_metadata_mongo(user_to_recipes[user_id])
+
+        with open(custom_user_output, 'w') as f:
+            json.dump(data, f)
+
+    with open(recipe_output, 'r') as f:
+        data = json.load(f)
+        i = 0
+
+        for item in data:
+            print(i)
+            i += 1
+            recipe_id = item["_id"]["$binary"]["base64"]
+            if recipe_id in recipe_to_users:
+                item["likedByUsers"] = generate_id_list_with_metadata_mongo(recipe_to_users[recipe_id])
+                item["numberOfLikes"] = len(recipe_to_users[recipe_id])
+
+        with open(recipe_output, 'w') as f:
+            json.dump(data, f, indent=4)
+
+def write_mongodb_disliked_arrays(input, custom_user_output, recipe_output):
+    user_to_recipes = defaultdict(list)
+    recipe_to_users = defaultdict(list)
+
+    print("Writing push statements:")
+
+    with open(input, 'r') as f:
+        reader = csv.reader(f)
+        for row in reader:
+            recipe_id, user_id = row
+            user_to_recipes[user_id].append(recipe_id)
+            recipe_to_users[recipe_id].append(user_id)
+
+    with open(custom_user_output, 'r') as f:
+        data = json.load(f)
+
+        i = 0
+
+        for item in data:
+            print(i)
+            i += 1
+            user_id = item["_id"]["$binary"]["base64"]
+            if user_id in user_to_recipes:
+                item["dislikedRecipes"] = generate_id_list_with_metadata_mongo(user_to_recipes[user_id])
+
+        with open(custom_user_output, 'w') as f:
+            json.dump(data, f)
+
+    with open(recipe_output, 'r') as f:
+        data = json.load(f)
+        i = 0
+
+        for item in data:
+            print(i)
+            i += 1
+            recipe_id = item["_id"]["$binary"]["base64"]
+            if recipe_id in recipe_to_users:
+                item["dislikedByUsers"] = generate_id_list_with_metadata_mongo(recipe_to_users[recipe_id])
+                item["numberOfDislikes"] = len(recipe_to_users[recipe_id])
+
+        with open(recipe_output, 'w') as f:
+            json.dump(data, f, indent=4)
+
 def generate_cypher_inserts_from_excel(excel_file, liked_recipe_file, custom_user_file, output_file, liked, type):
     print("Generating cypher insert: \n")
     wb = openpyxl.load_workbook(excel_file)
@@ -71,6 +191,8 @@ def generate_cypher_inserts_from_excel(excel_file, liked_recipe_file, custom_use
                 out.write(start)
             else:
                 out.write(", ")
+
+
 
 def print_sql_relations(user_size, category_size, recipe_size, comment_size, product_category_size, product_size, line_item_size, order_size):
 
@@ -192,11 +314,11 @@ def print_sql_relations(user_size, category_size, recipe_size, comment_size, pro
             open("sql/dislikedRecipeDislikedRecipe.txt", "w") as disliked_recipe_disliked_recipe_file, \
             open("sql/dislikedRecipeCustomUser.txt", "w") as disliked_recipe_custom_user_file:
 
-        for i in range(2, math.floor(recipe_size / 2)):
-            print(f"Generating relations for {i} recipe of {recipe_size / 2}")
-            no_users_liking = random.randint(0, math.floor(user_size / 4))
+        for i in range(2, math.floor(recipe_size)):
+            print(f"Generating relations for {i} recipe of {recipe_size}")
+            no_users_liking = random.randint(0, math.floor(user_size / 12))
             liking_users = random.sample(range(2, user_size), no_users_liking)
-            no_users_disliking = random.randint(0, math.floor(user_size / 12))
+            no_users_disliking = random.randint(0, math.floor(user_size / 24))
             disliking_users = [x for x in random.sample(range(2, user_size), no_users_disliking) if
                                x not in liking_users]
 
@@ -366,10 +488,10 @@ def print_cypher_relations(user_size, category_size, recipe_size, comment_size, 
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
 
-    user_size = 2500
+    user_size = 2000
     category_size = 40
-    recipe_size = 25000
-    comment_size = 125000
+    recipe_size = 10000
+    comment_size = 50000
     product_category_size = 15
     product_size = 100
     line_item_size = 1000
@@ -377,17 +499,23 @@ if __name__ == '__main__':
 
     # print_sql_relations(user_size, category_size, recipe_size, comment_size, product_category_size, product_size, line_item_size, order_size)
     # print_cypher_relations(user_size, category_size, recipe_size, comment_size, product_category_size, product_size, line_item_size, order_size)
-
-    # generate_sql_inserts_from_excel('SQL.xlsx', 'sql/likedRecipeLikedRecipe.txt', 'sql/likedRecipeCustomUser.txt',
-    #                                 'sql/insert_liked_statements.sql', True, "SQL")
-    generate_sql_inserts_from_excel('SQL.xlsx', 'sql/dislikedRecipeDislikedRecipe.txt',
-                                    'sql/dislikedRecipeCustomUser.txt',
-                                    'sql/insert_disliked_statements.sql', False, "SQL")
     #
-    # generate_cypher_inserts_from_excel('Cypher25k.xlsx', 'cypher/likedRecipeLikedRecipe.txt', 'cypher/likedRecipeCustomUser.txt',
+    # generate_sql_inserts_from_excel('SQL10k.xlsx', 'sql/likedRecipeLikedRecipe.txt', 'sql/likedRecipeCustomUser.txt',
+    #                                 'sql/insert_liked_statements.sql', True, "SQL")
+    # generate_sql_inserts_from_excel('SQL10k.xlsx', 'sql/dislikedRecipeDislikedRecipe.txt',
+    #                                 'sql/dislikedRecipeCustomUser.txt',
+    #                                 'sql/insert_disliked_statements.sql', False, "SQL")
+    #
+    # generate_cypher_inserts_from_excel('Cypher10k.xlsx', 'cypher/likedRecipeLikedRecipe.txt', 'cypher/likedRecipeCustomUser.txt',
     #                                 'cypher/insert_liked_statements.cypher', True, "Cypher")
-    # generate_cypher_inserts_from_excel('Cypher25k.xlsx', 'cypher/dislikedRecipeDislikedRecipe.txt',
+    # generate_cypher_inserts_from_excel('Cypher10k.xlsx', 'cypher/dislikedRecipeDislikedRecipe.txt',
     #                                 'cypher/dislikedRecipeCustomUser.txt',
     #                                 'cypher/insert_dislike_statements.cypher', False, "Cypher")
 
+    convert_cells_to_uuid("MongoDB10k.xlsm", "cypher/likedRecipeLikedRecipe.txt", "cypher/likedRecipeCustomUser.txt", "mongodb/likedRecipesLikedRecipe_UUID.csv")
+    write_mongodb_liked_arrays("mongodb/likedRecipesLikedRecipe_UUID.csv", "mongodb/user10k.json", "mongodb/recipe10k.json")
+    convert_cells_to_uuid("MongoDB10k.xlsm", "cypher/dislikedRecipeDislikedRecipe.txt", "cypher/dislikedRecipeCustomUser.txt",
+                          "mongodb/dislikedRecipesDislikedRecipe_UUID.csv")
+    write_mongodb_disliked_arrays("mongodb/dislikedRecipesDislikedRecipe_UUID.csv", "mongodb/user10k.json",
+                               "mongodb/recipe10k.json")
 # See PyCharm help at https://www.jetbrains.com/help/pycharm/
